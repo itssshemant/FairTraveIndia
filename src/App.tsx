@@ -1,66 +1,68 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Home } from "./components/Home";
 import { ReportScreen } from "./components/ReportScreen";
-import { PriceChecker } from "./components/PriceChecker";
 import { ExploreScreen } from "./components/ExploreScreen";
 import { SavedScreen } from "./components/SavedScreen";
 import { ProfileScreen } from "./components/ProfileScreen";
 import { CulturalTipsScreen } from "./components/CulturalTipsScreen";
 import { LoginModal } from "./components/LoginModal";
 import { SignUpModal } from "./components/SignUpModal";
+import TopLoader from "./components/TopLoader";
 
+type Screen =
+  | "home"
+  | "explore"
+  | "report"
+  | "saved"
+  | "profile"
+  | "cultural";
+
+const MIN_LOAD = 1000;
+const LOADER_DELAY = 300;
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<
-    | "home"
-    | "explore"
-    | "report"
-    | "saved"
-    | "profile"
-    | "cultural"
-  >("home");
+  const [currentScreen, setCurrentScreen] = useState<Screen>("home");
+  const [showLoader, setShowLoader] = useState(false);
+
+  const loaderTimer = useRef<number | null>(null);
+
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showSignUpModal, setShowSignUpModal] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
-  const handleLogin = (name: string, password: string) => {
-    // Dummy login - accept any credentials
-    setUserName(name);
-    setIsLoggedIn(true);
-    setShowLoginModal(false);
+  /* -------- Navigation -------- */
+
+  const handleNavigate = (screen: Screen) => {
+    if (screen === currentScreen) return;
+
+    loaderTimer.current = window.setTimeout(() => {
+      setShowLoader(true);
+    }, LOADER_DELAY);
+
+    setTimeout(() => {
+      setCurrentScreen(screen);
+      setShowLoader(false);
+      if (loaderTimer.current) clearTimeout(loaderTimer.current);
+    }, MIN_LOAD);
   };
 
-  const handleSignUp = (
-    name: string,
-    email: string,
-    phone: string,
-    password: string,
-  ) => {
-    // Dummy signup - accept any credentials
-    setUserName(name);
-    setIsLoggedIn(true);
-    setShowSignUpModal(false);
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setUserName("");
-    setCurrentScreen("home");
+  const commonProps = {
+    onNavigate: handleNavigate,
+    isLoggedIn,
+    userName,
+    onShowLogin: () => setShowLoginModal(true),
+    onLogout: () => {
+      setIsLoggedIn(false);
+      setUserName("");
+      handleNavigate("home");
+    },
+    isDarkMode,
+    onToggleDarkMode: setIsDarkMode,
   };
 
   const renderScreen = () => {
-    const commonProps = {
-      onNavigate: setCurrentScreen,
-      isLoggedIn,
-      userName,
-      onShowLogin: () => setShowLoginModal(true),
-      onLogout: handleLogout,
-      isDarkMode,
-      onToggleDarkMode: setIsDarkMode,
-    };
-
     switch (currentScreen) {
       case "home":
         return <Home {...commonProps} />;
@@ -81,35 +83,41 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen ${isDarkMode ? "bg-gray-900" : "bg-gradient-to-br from-orange-50 via-white to-green-50"}`}
+      className={`min-h-screen transition-colors ${
+        isDarkMode
+          ? "bg-gray-900"
+          : "bg-gradient-to-br from-orange-50 via-white to-green-50"
+      }`}
     >
-      <div className="p-4 flex justify-between items-center">
-        <h1 className="text-xl font-bold text-orange-600">
-          FairTravel
-        </h1>
+      {/* ✅ Single, clear loading signal */}
+      <TopLoader visible={showLoader} />
 
-        <button
-          onClick={() => setIsDarkMode(!isDarkMode)}
-          className="text-sm px-3 py-1 rounded border"
-        >
-          {isDarkMode ? "Light Mode" : "Dark Mode"}
-        </button>
-      </div>
+      {/* ✅ Content never blocked */}
       {renderScreen()}
+
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
-        onLogin={handleLogin}
+        onLogin={(name) => {
+          setUserName(name);
+          setIsLoggedIn(true);
+          setShowLoginModal(false);
+        }}
         onShowSignUp={() => {
           setShowLoginModal(false);
           setShowSignUpModal(true);
         }}
         isDarkMode={isDarkMode}
       />
+
       <SignUpModal
         isOpen={showSignUpModal}
         onClose={() => setShowSignUpModal(false)}
-        onSignUp={handleSignUp}
+        onSignUp={(name) => {
+          setUserName(name);
+          setIsLoggedIn(true);
+          setShowSignUpModal(false);
+        }}
         isDarkMode={isDarkMode}
       />
     </div>
