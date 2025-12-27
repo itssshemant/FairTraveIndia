@@ -26,7 +26,7 @@ export function Header({ isLoggedIn = false, userName = '', onShowLogin, onNavig
             <div className="relative">
               <div className="flex items-center gap-3">
                 <img
-                  src={'./src/assets/logo.png'}
+                  src={'/logo.png'}
                   alt="FairTravel India"
                   className="w-9 h-9"
                 />
