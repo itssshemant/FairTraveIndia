@@ -34,8 +34,7 @@ This logic-based decision feature makes FairTravel a **practical travel companio
 - **Deployment:** Vercel
 
 ## 🚀 Live Demo
-🔗 https://fairtravel.vercel.app
-
+🔗 https://fair-travel-india-8jxt8a8oy-hemant-meenas-projects-22972d87.vercel.app
 ## 📌 Current Status
 - Frontend MVP complete
 - Community price data simulated for demonstration
