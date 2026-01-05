@@ -446,8 +446,10 @@ export function CulturalTipsScreen({
       </main>
 
       <BottomNav
-        currentScreen="explore"
+        currentScreen="cultural"
         onNavigate={onNavigate}
+        isLoggedIn={isLoggedIn}
+        onShowLogin={onShowLogin}
       />
     </div>
   );

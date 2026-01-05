@@ -3,13 +3,12 @@ import { Header } from './Header';
 import { BottomNav } from './BottomNav';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { User, Flag, Award, Settings, LogOut, Bell, Shield, HelpCircle, Star, TrendingUp, Users, Camera, Trash2 } from 'lucide-react';
+import { User, Flag, Award, Settings, LogOut, Bell, Shield, HelpCircle, Star, TrendingUp, Users } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { SettingsModal } from './SettingsModal';
-import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabaseclient';
-import { User as SupabaseUser, createClient } from '@supabase/supabase-js';
-
+import { useState, useEffect } from 'react';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabaseclient';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface Achievement {
   name: string;
@@ -46,7 +45,6 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ onNavigate, isLoggedIn, userName, user, onShowLogin, onLogout, isDarkMode = false, onToggleDarkMode }: ProfileScreenProps) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [settingsModal, setSettingsModal] = useState<'notifications' | 'preferences' | 'privacy' | 'help' | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [recentActivity, setRecentActivity] = useState<Report[]>([]);
@@ -58,446 +56,199 @@ export function ProfileScreen({ onNavigate, isLoggedIn, userName, user, onShowLo
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
-  const didInitRef = useRef(false);
-  const pingCacheRef = useRef<{
-    ts: number;
-    ok: boolean;
-    detail?: string;
-    endpoints?: Record<string, string>;
-  } | null>(null);
-  const fixedClientRef = useRef<any | null>(null);
-
-  const getFixedClient = () => {
-    if (fixedClientRef.current) return fixedClientRef.current;
-
-    const sbAny: any = supabase as any;
-    const url = (sbAny?.supabaseUrl ?? sbAny?.url ?? '').toString();
-    const key =
-      (sbAny?.supabaseKey ??
-        sbAny?.headers?.apikey ??
-        sbAny?.rest?.headers?.apikey ??
-        sbAny?.storage?.headers?.apikey ??
-        '') as string;
-
-    // If we can't introspect url/key, fall back to the existing client.
-    if (!url || !key) {
-      fixedClientRef.current = supabase as any;
-      return fixedClientRef.current;
-    }
-
-    // Force this client to use globalThis.fetch (your wrapper) in the browser.
-    fixedClientRef.current = createClient(url, key, {
-      global: {
-        fetch: (...args: any[]) => (globalThis as any).fetch(...args),
-      },
-    });
-
-    return fixedClientRef.current;
-  };
-
-  const sb = () => getFixedClient();
-
-  const STORAGE_BUCKET = 'profile-pictures';
-  const REQUEST_TIMEOUT_MS = 15000; // keep aligned with XHR timeout below
-
-  // DEV-only: log + timeout XHR requests (some builds/polyfills use XHR instead of fetch)
-  const installXhrDebugOnce = () => {
-    if (!import.meta.env.DEV) return;
-    const g: any = globalThis as any;
-    if (g.__XHR_DEBUG_INSTALLED__) return;
-    if (typeof XMLHttpRequest === 'undefined') return;
-
-    g.__XHR_DEBUG_INSTALLED__ = true;
-
-    const origOpen = XMLHttpRequest.prototype.open;
-    const origSend = XMLHttpRequest.prototype.send;
-
-    XMLHttpRequest.prototype.open = function (method: string, url: string, ...rest: any[]) {
-      (this as any).__dbg = { method, url };
-      return origOpen.call(this, method, url, ...rest);
-    };
-
-    XMLHttpRequest.prototype.send = function (body?: any) {
-      const meta = (this as any).__dbg || {};
-      try {
-        // enforce timeout so stuck XHRs don't hang forever
-        (this as any).timeout = REQUEST_TIMEOUT_MS;
-
-        console.log('[xhr:start]', meta.method || 'GET', meta.url || '(unknown url)');
-
-        this.addEventListener('load', () => {
-          console.log('[xhr:done ]', meta.method || 'GET', meta.url || '(unknown url)', (this as any).status);
-        });
-        this.addEventListener('error', () => {
-          console.warn('[xhr:fail ]', meta.method || 'GET', meta.url || '(unknown url)', 'error');
-        });
-        this.addEventListener('timeout', () => {
-          console.warn('[xhr:fail ]', meta.method || 'GET', meta.url || '(unknown url)', `timeout ${REQUEST_TIMEOUT_MS}ms`);
-        });
-        this.addEventListener('abort', () => {
-          console.warn('[xhr:fail ]', meta.method || 'GET', meta.url || '(unknown url)', 'abort');
-        });
-      } catch {
-        // ignore
-      }
-
-      return origSend.call(this, body);
-    };
-
-    console.log('[xhr] debug wrapper installed');
-  };
-
-  // Install as early as possible for this screen
-  installXhrDebugOnce();
-
-  const normalizeErrMsg = (err: any, fallback: string) => {
-    const msg = err?.message || fallback;
-    // When global fetch aborts, browsers often throw AbortError
-    if (err?.name === 'AbortError' || /aborted/i.test(msg)) {
-      return `${fallback} (request aborted/timeout). Check network/adblock/firewall and Supabase project status.`;
-    }
-    return msg;
-  };
-
-  const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
-    let t: number | undefined;
-    try {
-      return await Promise.race([
-        p,
-        new Promise<T>((_, reject) => {
-          t = window.setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-        }),
-      ]);
-    } finally {
-      if (t) window.clearTimeout(t);
-    }
-  };
-
-  const getSupabaseUrlSafe = () => {
-    const sbAny: any = sb() as any;
-    return (sbAny?.supabaseUrl ?? sbAny?.url ?? '').toString().replace(/\/+$/, '');
-  };
-
-  const probeSupabase = async (reason: string) => {
-    const now = Date.now();
-    if (pingCacheRef.current && now - pingCacheRef.current.ts < 10_000) {
-      return pingCacheRef.current.ok;
-    }
-
-    const base = getSupabaseUrlSafe();
-    if (!base) {
-      pingCacheRef.current = { ts: now, ok: false, detail: 'Missing supabaseUrl on client' };
-      return false;
-    }
-
-    const probes: Array<{ name: string; url: string }> = [
-      { name: 'auth', url: `${base}/auth/v1/health` },
-      { name: 'rest', url: `${base}/rest/v1/` },
-      // Hit a real storage route (will usually be 401/403/400, but must respond fast if reachable)
-      { name: 'storage', url: `${base}/storage/v1/object/list/${STORAGE_BUCKET}` },
-    ];
-
-    const endpoints: Record<string, string> = {};
-    try {
-      for (const p of probes) {
-        const res = await withTimeout(
-          fetch(p.url, { method: 'GET' }),
-          8000,
-          `Probe ${p.name} (${reason})`
-        );
-        // Any HTTP response => reachable (401/404/etc is fine)
-        endpoints[p.name] = `HTTP ${res.status}`;
-      }
-
-      pingCacheRef.current = { ts: now, ok: true, endpoints, detail: 'reachable' };
-      return true;
-    } catch (e: any) {
-      // Network/timeout => blocked/stalled somewhere (often rest/storage)
-      const msg = e?.message || String(e);
-      pingCacheRef.current = { ts: now, ok: false, endpoints, detail: msg };
-      return false;
-    }
-  };
-
-  const networkFailMessage = (reason: string) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '(unknown origin)';
-    const base = getSupabaseUrlSafe() || '(unknown supabase url)';
-    const detail = pingCacheRef.current?.detail ? ` (${pingCacheRef.current.detail})` : '';
-    const ep = pingCacheRef.current?.endpoints
-      ? ` endpoints=${JSON.stringify(pingCacheRef.current.endpoints)}`
-      : '';
-    return `Supabase blocked/stalled for ${reason} from ${origin} -> ${base}${detail}${ep}. Check proxy/firewall/DNS (auth may work while rest/storage are blocked).`;
-  };
 
   useEffect(() => {
-    if (!isLoggedIn || !user) return;
-
-    // Avoid re-running the initial fetch twice in dev edge cases
-    if (didInitRef.current) return;
-    didInitRef.current = true;
-
-    // prevent "Uncaught (in promise)" when a timeout/error happens
-    (async () => {
-      await Promise.allSettled([fetchProfile(), fetchRecentActivity()]);
-    })();
+    if (isLoggedIn && user) {
+      fetchProfile();
+      fetchRecentActivity();
+    }
   }, [isLoggedIn, user]);
-
-  const logSupabaseDebug = (label: string) => {
-    const g: any = globalThis as any;
-    const fetchInstalled = !!g.__FETCH_DEBUG_INSTALLED__;
-    const xhrInstalled = !!g.__XHR_DEBUG_INSTALLED__;
-    const live: any = sb();
-    const usingFixed = live !== (supabase as any);
-
-    console.log(`[ProfileScreen][${label}] fetchDebug=`, fetchInstalled);
-    console.log(`[ProfileScreen][${label}] xhrDebug=`, xhrInstalled);
-    console.log(`[ProfileScreen][${label}] usingFixedClient=`, usingFixed);
-    console.log(`[ProfileScreen][${label}] supabaseUrl=`, (live as any)?.supabaseUrl ?? (live as any)?.url ?? "(unknown)");
-  };
-
-  const getAvatarUrl = (path: string) => {
-    const pub = sb().storage.from(STORAGE_BUCKET).getPublicUrl(path);
-    const url = pub?.data?.publicUrl;
-    return url ? `${url}?v=${Date.now()}` : undefined;
-  };
+  
 
   const uploadProfilePicture = async (file: File) => {
-    logSupabaseDebug("uploadProfilePicture:start");
-
-    const canReach = await probeSupabase('avatar upload');
-    if (!canReach) {
-      setUploadError(networkFailMessage('avatar upload'));
-      return;
-    }
-
     if (!user) return;
 
-    if (!file || !file.type.startsWith('image/')) {
-      setUploadError('Only image files are allowed');
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      const msg = 'Missing Supabase credentials (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).';
+      console.error('[ProfileScreen]', msg);
+      setUploadError(msg);
+      setIsUploadingPic(false);
       return;
     }
 
     setUploadError(null);
     setIsUploadingPic(true);
+    setUploadError(null);
 
-    const prevPath = profile?.profile_picture; // capture once (might change after fetchProfile)
+    setTimeout(() => {
+      setIsUploadingPic(false);
+    }, 15000);
 
+
+    if (!file || !file.type.startsWith('image/')) {
+      setUploadError('Invalid file type');
+      setIsUploadingPic(false);
+      return;
+    }
     try {
-      const extRaw = (file.name.split('.').pop() || 'jpg').toLowerCase();
-      const ext = extRaw === 'jpeg' ? 'jpg' : extRaw;
-      const filePath = `${user.id}/${Date.now()}-avatar.${ext}`;
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${user.id}/avatar.${fileExt}`;
 
-      // 1) Upload first (do NOT block on deleting old file)
-      const uploadResp = await withTimeout(
-        sb().storage.from(STORAGE_BUCKET).upload(filePath, file, {
-          upsert: false,
-          contentType: file.type,
-          cacheControl: '3600',
-        }),
-        REQUEST_TIMEOUT_MS,
-        'Upload avatar to Storage'
-      );
-      if ((uploadResp as any)?.error) throw (uploadResp as any).error;
-
-      // 2) Persist path in DB
-      const dbResp = await withTimeout(
-        sb().from('profiles').upsert({ id: user.id, profile_picture: filePath }),
-        REQUEST_TIMEOUT_MS,
-        'Save avatar path to profiles'
-      );
-      if ((dbResp as any)?.error) throw (dbResp as any).error;
-
-      // 3) Update UI immediately
-      setProfilePicture(getAvatarUrl(filePath));
-
-      // 4) Best-effort cleanup of previous avatar (do NOT await)
-      if (prevPath) {
-        sb().storage
-          .from(STORAGE_BUCKET)
-          .remove([prevPath])
-          .then(({ error }: any) => error && console.warn('[ProfileScreen] remove previous avatar:', error))
-          .catch((e: any) => console.warn('[ProfileScreen] remove previous avatar threw:', e));
+      // 1️⃣ Upload to storage
+      let uploadResult: any;
+      try {
+        uploadResult = await supabase.storage
+          .from('profile-pictures')
+          .upload(filePath, file, {
+            upsert: true,
+            contentType: file.type,
+          });
+      } catch (e) {
+        console.error('[ProfileScreen] storage.upload threw:', e);
+        throw e;
       }
 
-      await fetchProfile();
-    } catch (err: any) {
-      console.error('[ProfileScreen] Upload failed:', err);
-      setUploadError(normalizeErrMsg(err, 'Failed to upload image'));
+      console.log('[ProfileScreen] storage.upload response:', uploadResult);
+
+      if (uploadResult?.error) {
+        console.error('[ProfileScreen] upload error object:', uploadResult.error);
+        throw uploadResult.error;
+      }
+
+      // 2️⃣ Save path in profiles table — use upsert so row exists
+      const { data: dbData, error: dbError } = await supabase
+        .from('profiles')
+        .upsert({ id: user.id, profile_picture: filePath }, { returning: 'minimal' });
+
+      console.log('[ProfileScreen] profiles.upsert response:', { dbData, dbError });
+
+      if (dbError) {
+        console.error('[ProfileScreen] profiles upsert error:', dbError);
+        throw dbError;
+      }
+
+      // 3️⃣ Get public URL (getPublicUrl doesn't return `error`)
+      const { data: urlData } = supabase.storage
+        .from('profile-pictures')
+        .getPublicUrl(filePath as string);
+
+      console.log('[ProfileScreen] getPublicUrl response:', { urlData });
+
+      setProfilePicture(urlData?.publicUrl);
+
+      // refresh profile so DB value persists in UI
+      try {
+        await fetchProfile();
+      } catch (e) {
+        console.warn('Failed to refresh profile after upload', e);
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+      setUploadError((err as any)?.message || 'Failed to upload image');
     } finally {
       setIsUploadingPic(false);
     }
   };
 
   const updateDisplayName = async () => {
-    logSupabaseDebug("updateDisplayName:start");
-
-    const canReach = await probeSupabase('display name save');
-    if (!canReach) {
-      setNameError(networkFailMessage('display name save'));
-      return;
-    }
-
     if (!user) return;
-
-    const next = (displayName || '').trim();
-    if (!next) {
-      setNameError('Display name cannot be empty');
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      const msg = 'Missing Supabase credentials (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).';
+      console.error('[ProfileScreen]', msg);
+      setNameError(msg);
       return;
     }
-
     setIsSavingName(true);
     setNameError(null);
-
     try {
-      const resp = await withTimeout(
-        sb().from('profiles').upsert({ id: user.id, display_name: next }),
-        REQUEST_TIMEOUT_MS,
-        'Save display name to profiles'
-      );
+      console.log('[ProfileScreen] updating display_name ->', displayName);
+      // Use upsert so the profile row is created if missing.
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert({ id: user.id, display_name: displayName }, { returning: 'representation' });
 
-      if ((resp as any)?.error) {
-        setNameError((resp as any).error?.message || 'Failed to update display name');
+      console.log('[ProfileScreen] upsert response:', { data, error });
+
+      if (error) {
+        setNameError((error as any)?.message || 'Failed to update display name');
         return;
       }
 
       setIsEditingName(false);
-      setOriginalDisplayName(next);
-      setDisplayName(next);
+      setOriginalDisplayName(displayName);
       await fetchProfile();
     } catch (error: any) {
       console.error('Error updating display name:', error);
-      setNameError(normalizeErrMsg(error, 'Error updating display name'));
+      setNameError(error?.message || 'Error updating display name');
     } finally {
       setIsSavingName(false);
     }
   };
 
-  const fetchProfile = async () => {
-    logSupabaseDebug("fetchProfile:start");
+  const fetchRecentActivity = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('reports')
+      .select('location, price, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    setRecentActivity(data || []);
+  };
 
-    const canReach = await probeSupabase('profile fetch');
-    if (!canReach) {
-      setUploadError(networkFailMessage('profile fetch'));
+  const fetchProfile = async () => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, display_name, profile_picture, trust_score, points, reports_count, achievements, created_at')
+      .eq('id', user.id)
+      .single();
+
+    if (error) {
+      console.error(error);
       return;
     }
 
-    if (!user) return;
+    setProfile(data);
+    setDisplayName(data.display_name || user.email || 'User');
+    setOriginalDisplayName(data.display_name || user.email || 'User');
 
-    try {
-      const resp = await withTimeout(
-        sb()
-          .from('profiles')
-          .select('id, display_name, profile_picture, trust_score, points, reports_count, achievements, created_at')
-          .eq('id', user.id)
-          .maybeSingle(),
-        REQUEST_TIMEOUT_MS,
-        'Fetch profile'
-      );
+    if (data.profile_picture) {
+      const { data: urlData } = supabase.storage
+        .from('profile-pictures')
+        .getPublicUrl(data.profile_picture);
 
-      const { data, error } = resp as any;
-      if (error) {
-        console.error('[ProfileScreen] fetchProfile error:', error);
-        return;
-      }
-
-      // If no row, create it once and re-fetch
-      if (!data) {
-        const createResp = await withTimeout(
-          sb().from('profiles').upsert({ id: user.id, role: 'tourist' } as any),
-          REQUEST_TIMEOUT_MS,
-          'Create profile'
-        );
-        if ((createResp as any)?.error) {
-          console.error('[ProfileScreen] create profile error:', (createResp as any).error);
-          return;
-        }
-        return await fetchProfile();
-      }
-
-      setProfile(data);
-
-      const resolvedName = data.display_name || user.email || 'User';
-      if (!isEditingName) {
-        setDisplayName(resolvedName);
-        setOriginalDisplayName(resolvedName);
-      } else {
-        setOriginalDisplayName(resolvedName);
-      }
-
-      if (data.profile_picture) {
-        const url = getAvatarUrl(data.profile_picture);
-        setProfilePicture(url);
-      } else {
-        setProfilePicture(undefined);
-      }
-    } catch (e: any) {
-      // prevent uncaught timeout errors
-      console.error('[ProfileScreen] fetchProfile failed:', e);
-      // optional: surface a hint in the UI area you already show errors
-      setUploadError(normalizeErrMsg(e, 'Failed to load profile'));
-    }
-  };
-
-  const fetchRecentActivity = async () => {
-    if (!user) return;
-    try {
-      const { data } = await sb()
-        .from('reports')
-        .select('location, price, created_at')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-      setRecentActivity(data || []);
-    } catch (e) {
-      console.error('[ProfileScreen] fetchRecentActivity failed:', e);
+      setProfilePicture(urlData.publicUrl);
+    } else {
+      setProfilePicture(undefined);
     }
   };
 
   const removeProfilePicture = async () => {
     if (!user) return;
-
-    setUploadError(null);
-    setIsUploadingPic(true);
-
-    const path = profile?.profile_picture;
-
     try {
-      const dbResp = await withTimeout(
-        sb().from('profiles').update({ profile_picture: null }).eq('id', user.id),
-        REQUEST_TIMEOUT_MS,
-        'Clear avatar path in profiles'
-      );
-      if ((dbResp as any)?.error) throw (dbResp as any).error;
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ profile_picture: null })
+        .eq('id', user.id);
 
-      setProfilePicture(undefined);
-
-      // Best-effort delete (do NOT await)
-      if (path) {
-        sb().storage
-          .from(STORAGE_BUCKET)
-          .remove([path])
-          .then(({ error }: any) => error && console.warn('[ProfileScreen] remove avatar:', error))
-          .catch((e: any) => console.warn('[ProfileScreen] remove avatar threw:', e));
+      if (updateError) {
+        console.error('Error removing profile picture:', updateError);
+        alert('Failed to remove profile picture');
+        return;
       }
 
-      await fetchProfile();
-    } catch (error: any) {
+      setProfilePicture(undefined);
+      fetchProfile();
+    } catch (error) {
       console.error('Error removing profile picture:', error);
-      alert(error?.message || 'Error removing profile picture');
-    } finally {
-      setIsUploadingPic(false);
+      alert('Error removing profile picture');
     }
   };
 
   return (
     <div className="min-h-screen pb-20">
-      <Header
-        isLoggedIn={isLoggedIn}
-        userName={userName}
-        onShowLogin={onShowLogin}
-        onNavigate={onNavigate}
-        onLogout={onLogout}
-      />
+      <Header isLoggedIn={isLoggedIn} userName={userName} onShowLogin={onShowLogin} onNavigate={onNavigate} onLogout={onLogout} />
       {!isLoggedIn ? (
         <main className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-center min-h-[60vh]">
           <Card className="border-gray-200 shadow-lg p-8 text-center max-w-md">
@@ -515,66 +266,60 @@ export function ProfileScreen({ onNavigate, isLoggedIn, userName, user, onShowLo
           <Card className="border-gray-200 shadow-lg overflow-hidden">
             <div className="h-20 sm:h-24 bg-gradient-to-r from-orange-500 to-orange-600"></div>
             <CardContent className="p-4 sm:p-6 -mt-10 sm:-mt-12 flex flex-col sm:flex-row items-center gap-6">
-              <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-gray-200 flex items-center justify-center group shadow-lg border-4 border-white -mt-12 sm:-mt-16 overflow-hidden">
+              <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-2xl bg-gray-200 flex items-center justify-center group shadow-lg border-4 border-white -mt-12 sm:-mt-16">
                 {isUploadingPic ? (
                   <div className="flex items-center justify-center w-full h-full">
                     <span className="text-orange-600 font-semibold">Uploading...</span>
                   </div>
                 ) : uploadError ? (
-                  <div className="flex items-center justify-center w-full h-full p-2 text-center">
-                    <span className="text-red-600 font-semibold text-xs">{uploadError}</span>
+                  <div className="flex items-center justify-center w-full h-full">
+                    <span className="text-red-600 font-semibold">{uploadError}</span>
                   </div>
                 ) : profilePicture ? (
                   <>
-                    <img src={profilePicture} alt="Profile" className="w-full h-full rounded-full object-cover" />
-                    {/* small circular hover actions */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors" />
-                    <div className="absolute bottom-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <img src={profilePicture} alt="Profile" className="w-full h-full rounded-2xl object-cover" />
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 rounded-2xl transition-opacity flex items-center justify-center">
                       <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-9 h-9 rounded-full bg-white/95 hover:bg-white shadow flex items-center justify-center"
-                        aria-label="Update profile picture"
+                        onClick={() => document.getElementById('profile-pic-input')?.click()}
+                        className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 border-2 border-white hover:scale-105 hover:shadow-xl"
+                        style={{ pointerEvents: 'auto' }}
                       >
-                        <Camera className="w-4 h-4 text-gray-800" />
+                        Change Photo
                       </button>
                       <button
-                        type="button"
                         onClick={removeProfilePicture}
-                        className="w-9 h-9 rounded-full bg-white/95 hover:bg-white shadow flex items-center justify-center"
-                        aria-label="Remove profile picture"
+                        className="ml-2 bg-red-500 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 border-2 border-white hover:scale-105 hover:shadow-xl"
+                        style={{ pointerEvents: 'auto' }}
                       >
-                        <Trash2 className="w-4 h-4 text-red-600" />
+                        Remove
                       </button>
                     </div>
                   </>
                 ) : (
                   <>
                     <User className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors" />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-white/95 hover:bg-white shadow flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      aria-label="Upload profile picture"
-                    >
-                      <Camera className="w-4 h-4 text-gray-800" />
-                    </button>
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 rounded-2xl transition-opacity flex items-center justify-center">
+                      <button
+                        onClick={() => document.getElementById('profile-pic-input')?.click()}
+                        className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 border-2 border-white hover:scale-105 hover:shadow-xl"
+                        style={{ pointerEvents: 'auto' }}
+                      >
+                        Upload Photo
+                      </button>
+                    </div>
                   </>
                 )}
-
                 <input
-                  ref={fileInputRef}
-                  className="hidden"
                   id="profile-pic-input"
                   type="file"
                   accept="image/*"
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    uploadProfilePicture(file);
-                    e.target.value = '';
+                    if (e.target.files && e.target.files[0]) {
+                      uploadProfilePicture(e.target.files[0]);
+                      e.target.value = '';
+                    }
                   }}
+                  className="hidden"
                   aria-label="Upload profile picture"
                 />
               </div>
@@ -787,14 +532,7 @@ export function ProfileScreen({ onNavigate, isLoggedIn, userName, user, onShowLo
           </Card>
         </main>
       )}
-
-      <BottomNav
-        currentScreen="profile"
-        onNavigate={onNavigate}
-        isLoggedIn={isLoggedIn}
-        onShowLogin={onShowLogin}
-      />
-
+      <BottomNav currentScreen="profile" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} />
       {settingsModal && (
         <SettingsModal
           type={settingsModal}

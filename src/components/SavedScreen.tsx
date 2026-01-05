@@ -4,58 +4,67 @@ import { Card, CardContent } from './ui/card';
 import { Bookmark, MapPin, Trash2, Share2, Star, TrendingUp } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseclient';
+import { User } from '@supabase/supabase-js';
 
 interface SavedScreenProps {
   onNavigate: (screen: 'home' | 'explore' | 'report' | 'saved' | 'profile' | 'cultural') => void;
   isLoggedIn: boolean;
   userName: string;
+  user: User | null;
   onShowLogin: () => void;
   onLogout: () => void;
 }
 
-export function SavedScreen({ onNavigate, isLoggedIn, userName, onShowLogin, onLogout }: SavedScreenProps) {
-  const savedItems = [
-    { 
-      service: 'Auto Rickshaw to Red Fort', 
-      price: '₹40-60', 
-      location: 'Connaught Place, Delhi',
-      category: 'Transport',
-      icon: '🛺',
-      savedDate: '2 days ago',
-      trending: true,
-      rating: 4.7
-    },
-    { 
-      service: 'Museum Entry - National Museum', 
-      price: '₹100-150', 
-      location: 'Janpath, Delhi',
-      category: 'Attraction',
-      icon: '🏛️',
-      savedDate: '5 days ago',
-      trending: false,
-      rating: 4.5
-    },
-    { 
-      service: 'Street Food - Paranthe Wali Gali', 
-      price: '₹30-50', 
-      location: 'Chandni Chowk, Delhi',
-      category: 'Food',
-      icon: '🍲',
-      savedDate: '1 week ago',
-      trending: true,
-      rating: 4.9
-    },
-    { 
-      service: 'Hotel (3-star)', 
-      price: '₹1,500-2,500', 
-      location: 'Paharganj, Delhi',
-      category: 'Accommodation',
-      icon: '🏨',
-      savedDate: '2 weeks ago',
-      trending: false,
-      rating: 4.3
-    },
-  ];
+interface SavedItem {
+  icon?: any;
+  service: string;
+  trending?: boolean;
+  location?: string;
+  category?: string;
+  price?: number | string;
+  rating?: number | string;
+  savedDate?: string;
+}
+
+export function SavedScreen({ onNavigate, isLoggedIn, userName, user, onShowLogin, onLogout }: SavedScreenProps) {
+  const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+
+  useEffect(() => {
+    if (isLoggedIn && user) {
+      fetchSavedItems();
+    }
+  }, [isLoggedIn, user]);
+
+  const fetchSavedItems = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('saved_items')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('saved_date', { ascending: false });
+    setSavedItems(data || []);
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen pb-20">
+        <Header isLoggedIn={isLoggedIn} userName={userName} onShowLogin={onShowLogin} onNavigate={onNavigate} onLogout={onLogout} />
+        <main className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-center min-h-[60vh]">
+          <Card className="border-gray-200 shadow-lg p-8 text-center max-w-md">
+            <Bookmark className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Sign In Required</h2>
+            <p className="text-gray-600 mb-6">Please sign in to access your saved prices and favorites.</p>
+            <Button onClick={onShowLogin} className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700">
+              Sign In
+            </Button>
+          </Card>
+        </main>
+        <BottomNav currentScreen="saved" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pb-20">
@@ -216,7 +225,7 @@ export function SavedScreen({ onNavigate, isLoggedIn, userName, onShowLogin, onL
         </Card>
       </main>
 
-      <BottomNav currentScreen="saved" onNavigate={onNavigate} />
+      <BottomNav currentScreen="saved" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} />
     </div>
   );
 }

@@ -7,22 +7,30 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent } from './ui/card';
 import { MapPin, Upload, CheckCircle, IndianRupee, AlertCircle, Camera, FileText } from 'lucide-react';
 import { Badge } from './ui/badge';
+import { supabase } from '../lib/supabaseclient';
+import { User } from '@supabase/supabase-js';
 
 interface ReportScreenProps {
   onNavigate: (screen: 'home' | 'explore' | 'report' | 'saved' | 'profile' | 'cultural') => void;
   isLoggedIn: boolean;
   userName: string;
+  user: User | null;
   onShowLogin: () => void;
   onLogout: () => void;
 }
 
-export function ReportScreen({ onNavigate, isLoggedIn, userName, onShowLogin, onLogout }: ReportScreenProps) {
+export function ReportScreen({ onNavigate, isLoggedIn, userName, user, onShowLogin, onLogout }: ReportScreenProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState('Auto Rickshaw');
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [chargedAmount, setChargedAmount] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [extraDetails, setExtraDetails] = useState('');
+  const [location, setLocation] = useState('Connaught Place, New Delhi');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showToast, setShowToast] = useState(false);
 
   const categories = [
     { name: 'Auto Rickshaw', icon: '🛺' },
@@ -63,6 +71,67 @@ export function ReportScreen({ onNavigate, isLoggedIn, userName, onShowLogin, on
     setUploadedFiles([]);
     setPhotoPreview(null);
   };
+
+  const handleSubmit = async () => {
+    if (!user) return;
+    setIsUploading(true);
+    setUploadError(null);
+    let evidenceUrl = null;
+    try {
+      // Upload evidence file if present
+      if (uploadedFiles.length > 0) {
+        const file = uploadedFiles[0];
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+        const { data, error } = await supabase.storage.from('evidence').upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+        if (error) throw new Error('File upload failed. Please try again.');
+        // Get public URL
+        const { data: urlData } = supabase.storage.from('evidence').getPublicUrl(fileName);
+        evidenceUrl = urlData?.publicUrl || null;
+      }
+
+      // Insert report with evidence URL and extra details
+      const { error: insertError } = await supabase.from('reports').insert({
+        user_id: user.id,
+        category: selectedCategory,
+        amount: parseFloat(chargedAmount) || 0,
+        location: location,
+        description: extraDetails || 'Overcharging report',
+        is_verified: false,
+        evidence_url: evidenceUrl,
+      });
+      if (insertError) throw new Error('Report submission failed. Please try again.');
+      setIsSubmitted(true);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    } catch (err: any) {
+      setUploadError(err.message || 'Something went wrong.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen pb-20">
+        <Header isLoggedIn={isLoggedIn} userName={userName} onShowLogin={onShowLogin} onLogout={onLogout} />
+        <main className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-center min-h-[60vh]">
+          <Card className="border-gray-200 shadow-lg p-8 text-center max-w-md">
+            <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Sign In Required</h2>
+            <p className="text-gray-600 mb-6">Please sign in to report overcharging and help the community.</p>
+            <Button onClick={onShowLogin} className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700">
+              Sign In
+            </Button>
+          </Card>
+        </main>
+        <BottomNav currentScreen="report" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} />
+      </div>
+    );
+  }
 
   if (isSubmitted) {
     return (
@@ -106,7 +175,7 @@ export function ReportScreen({ onNavigate, isLoggedIn, userName, onShowLogin, on
             </CardContent>
           </Card>
         </main>
-        <BottomNav currentScreen="report" onNavigate={onNavigate} />
+        <BottomNav currentScreen="report" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} />
       </div>
     );
   }
@@ -223,7 +292,8 @@ export function ReportScreen({ onNavigate, isLoggedIn, userName, onShowLogin, on
             <Input
               placeholder="Where did this happen?"
               className="pl-12 h-12 border-gray-300 focus:ring-2 focus:ring-orange-500 rounded-xl"
-              defaultValue="Connaught Place, New Delhi"
+              value={location}
+              onChange={e => setLocation(e.target.value)}
             />
           </div>
           <p className="text-xs text-gray-500 flex items-center gap-1">
@@ -359,6 +429,8 @@ export function ReportScreen({ onNavigate, isLoggedIn, userName, onShowLogin, on
           <Textarea
             placeholder="Share your experience... What happened? How did they justify the price? Any other details that might help others."
             className="min-h-32 border-gray-300 focus:ring-2 focus:ring-orange-500 rounded-xl resize-none"
+            value={extraDetails}
+            onChange={e => setExtraDetails(e.target.value)}
           />
           <p className="text-xs text-gray-500">
             💡 Detailed reports help the community better understand common scams
@@ -381,18 +453,27 @@ export function ReportScreen({ onNavigate, isLoggedIn, userName, onShowLogin, on
         {/* Submit Button */}
         <div className="space-y-3">
           <Button
-            onClick={() => setIsSubmitted(true)}
+            onClick={handleSubmit}
             className="w-full h-14 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 shadow-xl shadow-orange-200 text-lg font-bold rounded-xl"
+            disabled={isUploading}
           >
-            Submit Report & Help Others
+            {isUploading ? 'Uploading...' : 'Submit Report & Help Others'}
           </Button>
+          {uploadError && (
+            <p className="text-center text-sm text-red-600 font-semibold">{uploadError}</p>
+          )}
+          {showToast && (
+            <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg z-[9999] font-semibold animate-fade-in">
+              Report submitted successfully!
+            </div>
+          )}
           <p className="text-center text-xs text-gray-500">
             By submitting, you agree to our community guidelines
           </p>
         </div>
       </main>
 
-      <BottomNav currentScreen="report" onNavigate={onNavigate} />
+      <BottomNav currentScreen="report" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} />
     </div>
   );
 }

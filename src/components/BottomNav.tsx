@@ -17,12 +17,16 @@ interface BottomNavProps {
       | "profile"
       | "cultural",
   ) => void;
+  isLoggedIn: boolean;
+  onShowLogin: () => void;
   isDarkMode?: boolean;
 }
 
 export function BottomNav({
   currentScreen,
   onNavigate,
+  isLoggedIn,
+  onShowLogin,
   isDarkMode = false,
 }: BottomNavProps) {
   const navItems = [
@@ -45,7 +49,13 @@ export function BottomNav({
             return (
               <button
                 key={item.id}
-                onClick={() => onNavigate(item.id as any)}
+                onClick={() => {
+                  if ((item.id === 'profile' || item.id === 'report' || item.id === 'saved') && !isLoggedIn) {
+                    onShowLogin();
+                  } else {
+                    onNavigate(item.id as any);
+                  }
+                }}
                 className={`flex flex-col items-center justify-center gap-0.5 sm:gap-1 px-2 sm:px-4 py-2 rounded-xl transition-all duration-200 transform flex-1 ${
                   isActive
                     ? "text-orange-600 scale-110"

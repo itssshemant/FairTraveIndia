@@ -29,16 +29,22 @@ import {
 import { getServicesForCity } from "./locationData";
 import { PriceDetailModal } from "./PriceDetailModal";
 import { fairPrices } from "../data/prices";
+import { supabase } from "../lib/supabaseclient";
+import { User } from "@supabase/supabase-js";
 
 interface PriceCheckerProps {
   onNavigate: (
     screen: "home" | "explore" | "report" | "saved" | "profile" | "cultural"
   ) => void;
+  isLoggedIn: boolean;
+  user: User | null;
   isDarkMode?: boolean;
 }
 
 export function PriceChecker({
   onNavigate,
+  isLoggedIn,
+  user,
   isDarkMode = false,
 }: PriceCheckerProps) {
   const [selectedTab, setSelectedTab] = useState("Rides");
@@ -52,6 +58,29 @@ export function PriceChecker({
 
   const [selectedCity] = useState("Delhi");
   const [detailModal, setDetailModal] = useState<any>(null);
+
+  const handleSavePrice = async () => {
+    if (!isLoggedIn || !user) {
+      alert("Please sign in to save prices");
+      return;
+    }
+
+    const key = `${selectedCity.toLowerCase()}-${selectedTab.toLowerCase()}`;
+    const fair = fairPrices[key];
+
+    if (!fair) return;
+
+    await supabase.from('saved_items').insert({
+      user_id: user.id,
+      service: `${selectedTab} Service`,
+      price: `₹${fair.min}-${fair.max}`,
+      location: selectedCity,
+      category: selectedTab,
+      icon: '💰', // or based on tab
+    });
+
+    alert("Price saved!");
+  };
 
   const tabs = ["Rides", "Food", "Tickets", "Accommodation"];
 
@@ -240,7 +269,7 @@ export function PriceChecker({
 
       {/* Actions */}
       <div className="grid grid-cols-2 gap-4">
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2" onClick={handleSavePrice}>
           <Save className="w-4 h-4" /> Save
         </Button>
         <Button

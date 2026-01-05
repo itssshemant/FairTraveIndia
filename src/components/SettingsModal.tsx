@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { X, Bell, Settings, Shield, HelpCircle, ChevronRight, Globe, Moon, Volume2, Lock, Eye, Trash2, Mail, MessageSquare } from 'lucide-react';
+import { X, Bell, Settings, Shield, HelpCircle, ChevronRight, Globe, Moon, Volume2, Lock, Eye, Trash2, Mail, MessageSquare, Key } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { supabase } from '../lib/supabaseclient';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,8 +26,36 @@ export function SettingsModal({ isOpen, onClose, type, isDarkMode, onToggleDarkM
   const [profileVisibility, setProfileVisibility] = useState('public');
   const [showActivity, setShowActivity] = useState(true);
   const [dataCollection, setDataCollection] = useState(true);
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   if (!isOpen) return null;
+
+  const handlePasswordChange = async () => {
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setPasswordError('');
+      setShowPasswordChange(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      alert('Password updated successfully');
+    } catch (error: any) {
+      setPasswordError(error.message);
+    }
+  };
 
   const getTitle = () => {
     switch (type) {
@@ -179,6 +208,7 @@ export function SettingsModal({ isOpen, onClose, type, isDarkMode, onToggleDarkM
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  aria-label="Select language"
                 >
                   <option>English</option>
                   <option>हिंदी (Hindi)</option>
@@ -202,6 +232,7 @@ export function SettingsModal({ isOpen, onClose, type, isDarkMode, onToggleDarkM
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  aria-label="Select currency"
                 >
                   <option>INR (₹)</option>
                   <option>USD ($)</option>
@@ -264,6 +295,56 @@ export function SettingsModal({ isOpen, onClose, type, isDarkMode, onToggleDarkM
             <div className="space-y-4">
               <div className="p-4 bg-gray-50 rounded-xl">
                 <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Key className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">Change Password</p>
+                    <p className="text-sm text-gray-600">Update your account password</p>
+                  </div>
+                </div>
+                {!showPasswordChange ? (
+                  <Button onClick={() => setShowPasswordChange(true)} className="w-full bg-blue-500 hover:bg-blue-600">
+                    Change Password
+                  </Button>
+                ) : (
+                  <div className="space-y-3">
+                    <input
+                      type="password"
+                      placeholder="Current Password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
+                    />
+                    <input
+                      type="password"
+                      placeholder="New Password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
+                    />
+                    <input
+                      type="password"
+                      placeholder="Confirm New Password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500"
+                    />
+                    {passwordError && <p className="text-red-500 text-sm">{passwordError}</p>}
+                    <div className="flex gap-2">
+                      <Button onClick={handlePasswordChange} className="flex-1 bg-blue-500 hover:bg-blue-600">
+                        Update Password
+                      </Button>
+                      <Button onClick={() => { setShowPasswordChange(false); setPasswordError(''); setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); }} variant="outline" className="flex-1">
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-xl">
+                <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
                     <Eye className="w-5 h-5 text-green-600" />
                   </div>
@@ -276,6 +357,7 @@ export function SettingsModal({ isOpen, onClose, type, isDarkMode, onToggleDarkM
                   value={profileVisibility}
                   onChange={(e) => setProfileVisibility(e.target.value)}
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-green-500"
+                  aria-label="Select profile visibility"
                 >
                   <option value="public">Public - Everyone</option>
                   <option value="community">Community Only</option>

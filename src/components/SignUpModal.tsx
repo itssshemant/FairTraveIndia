@@ -1,236 +1,201 @@
-import { useState } from 'react';
-import { X, User, Lock, Mail, Phone, UserPlus } from 'lucide-react';
+/* eslint-disable */
+import { useState, useEffect } from 'react';
+import { X, UserPlus } from 'lucide-react';
 import { Button } from './ui/button';
+import { supabase } from '../lib/supabaseclient';
 
 interface SignUpModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSignUp: (name: string, email: string, phone: string, password: string) => void;
-  isDarkMode?: boolean;
 }
 
-export function SignUpModal({ isOpen, onClose, onSignUp, isDarkMode = false }: SignUpModalProps) {
+export function SignUpModal({ isOpen, onClose }: SignUpModalProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (isOpen) {
+      setIsVisible(true);
+    } else {
+      const timer = setTimeout(() => setIsVisible(false), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  if (!isVisible) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!name.trim()) {
-      setError('Please enter your name');
-      return;
-    }
-    
-    if (!email.trim()) {
-      setError('Please enter your email');
-      return;
-    }
-    
-    if (!phone.trim()) {
-      setError('Please enter your phone number');
-      return;
-    }
-    
-    if (!password.trim()) {
-      setError('Please enter a password');
-      return;
-    }
-    
+    setError('');
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
-    
-    // Call signup with dummy data
-    onSignUp(name.trim(), email.trim(), phone.trim(), password);
-    setName('');
-    setEmail('');
-    setPhone('');
-    setPassword('');
-    setConfirmPassword('');
-    setError('');
+
+    try {
+      setLoading(true);
+
+      const cleanName = name.trim();
+
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: cleanName,
+            full_name: cleanName,
+          },
+        },
+      });
+
+      if (error) throw error;
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Signup failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleClose = () => {
-    setName('');
-    setEmail('');
-    setPhone('');
-    setPassword('');
-    setConfirmPassword('');
-    setError('');
-    onClose();
+  const signInWithGoogle = async () => {
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.href, // Redirect back to current page
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+
+      if (error) {
+        console.error('Google OAuth error:', error);
+        setError(error.message);
+      }
+    } catch (err: any) {
+      console.error('Google sign-in failed:', err);
+      setError('Failed to sign in with Google');
+    }
   };
 
   return (
-    <div 
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 overflow-y-auto"
-      style={{ 
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)'
-      }}
-      onClick={handleClose}
-    >
-      <div 
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md my-8 overflow-hidden animate-in fade-in zoom-in duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="bg-gradient-to-r from-green-600 to-green-700 p-6 relative rounded-t-2xl">
-          <button
-            onClick={handleClose}
-            className="absolute top-3 right-3 w-10 h-10 bg-white hover:bg-gray-100 rounded-full flex items-center justify-center transition-all shadow-lg hover:shadow-xl transform hover:scale-110 z-50"
-            aria-label="Close sign up"
-          >
-            <X className="w-6 h-6 text-green-600 font-bold" strokeWidth={3} />
-          </button>
-          <div className="flex items-center gap-3 pr-12">
-            <div className="w-14 h-14 bg-white rounded-xl flex items-center justify-center shadow-md">
-              <UserPlus className="w-7 h-7 text-green-600" strokeWidth={2.5} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-white drop-shadow-md">Create Account</h2>
-              <p className="text-green-100 text-sm">Join Fair Travel India</p>
-            </div>
-          </div>
-        </div>
+    <div className={`fixed inset-0 z-[9999] ${isOpen ? '' : 'pointer-events-none'}`}>
+      {/* 🔥 Backdrop */}
+      <div
+        className={`absolute inset-0 bg-black/40 backdrop-blur-lg transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
+        onClick={onClose}
+      />
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      {/* Modal wrapper */}
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4">
+        <div
+          className={`w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-200 p-6 transform transition-all duration-300 ease-out ${isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Create Account</h2>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-full hover:bg-gray-100"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+
+          {/* Error */}
           {error && (
-            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-red-700 text-sm font-medium">
+            <div className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
               {error}
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Full Name
-            </label>
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                <User className="w-5 h-5 text-gray-400" />
-              </div>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter your full name"
-                className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Email Address
-            </label>
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                <Mail className="w-5 h-5 text-gray-400" />
-              </div>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your.email@example.com"
-                className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Phone Number
-            </label>
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                <Phone className="w-5 h-5 text-gray-400" />
-              </div>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+91 XXXXX XXXXX"
-                className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Password
-            </label>
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                <Lock className="w-5 h-5 text-gray-400" />
-              </div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Create a password"
-                className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Confirm Password
-            </label>
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                <Lock className="w-5 h-5 text-gray-400" />
-              </div>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm your password"
-                className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-green-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <input 
-              type="checkbox" 
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <input
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
+              placeholder="Full Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               required
-              className="w-4 h-4 mt-1 rounded border-gray-300 text-green-600 focus:ring-green-500" 
             />
-            <label className="text-sm text-gray-600">
-              I agree to the <a href="#" className="text-green-600 font-semibold hover:text-green-700">Terms of Service</a> and <a href="#" className="text-green-600 font-semibold hover:text-green-700">Privacy Policy</a>
-            </label>
+            <input
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <input
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <input
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
+              type="password"
+              placeholder="Confirm Password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+
+            <Button
+              type="submit"
+              disabled={loading}
+              className="
+                w-full h-11
+                bg-gradient-to-r from-orange-500 to-orange-600
+                hover:from-orange-600 hover:to-orange-700
+                text-white font-semibold
+                shadow-lg shadow-orange-200
+                transition-all
+                active:scale-[0.98]
+              "
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              {loading ? 'Creating...' : 'Create Account'}
+            </Button>
+          </form>
+
+          {/* Divider */}
+          <div className="my-4 flex items-center gap-3">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-xs text-gray-500 font-semibold">OR</span>
+            <div className="flex-1 h-px bg-gray-200" />
           </div>
 
+          {/* Google */}
           <Button
-            type="submit"
-            className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg font-semibold h-12"
+            variant="outline"
+            onClick={signInWithGoogle}
+            className="w-full h-11 rounded-xl border-gray-300 hover:bg-gray-50 font-semibold"
           >
-            <UserPlus className="w-5 h-5 mr-2" />
-            Create Account
+            Continue with Google
           </Button>
-
-          <div className="text-center">
-            <p className="text-gray-600 text-sm">
-              Already have an account?{' '}
-              <button 
-                type="button"
-                onClick={handleClose}
-                className="text-green-600 font-semibold hover:text-green-700"
-              >
-                Sign in instead
-              </button>
-            </p>
-          </div>
-        </form>
+        </div>
       </div>
     </div>
   );

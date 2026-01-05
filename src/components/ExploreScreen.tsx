@@ -23,10 +23,10 @@ export function ExploreScreen({ onNavigate, isLoggedIn, userName, onShowLogin, o
           <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Discover community-verified pricing across India</p>
         </div>
         
-        <PriceChecker onNavigate={onNavigate} isDarkMode={isDarkMode} />
+        <PriceChecker onNavigate={onNavigate} isLoggedIn={isLoggedIn} user={user} isDarkMode={isDarkMode} />
       </main>
 
-      <BottomNav currentScreen="explore" onNavigate={onNavigate} isDarkMode={isDarkMode} />
+      <BottomNav currentScreen="explore" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} isDarkMode={isDarkMode} />
     </div>
   );
 }

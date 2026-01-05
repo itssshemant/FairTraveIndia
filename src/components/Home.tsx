@@ -328,7 +328,7 @@ export function Home({ onNavigate, isLoggedIn, userName, onShowLogin, onLogout, 
         </Card>
       </main>
 
-      <BottomNav currentScreen="home" onNavigate={onNavigate} isDarkMode={isDarkMode} />
+      <BottomNav currentScreen="home" onNavigate={onNavigate} isLoggedIn={isLoggedIn} onShowLogin={onShowLogin} isDarkMode={isDarkMode} />
       
       {/* Price Detail Modal */}
       {selectedService && (
