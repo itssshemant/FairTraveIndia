@@ -7,9 +7,10 @@ import { supabase } from '../lib/supabaseclient';
 interface SignUpModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onAuthSuccess?: () => void | Promise<void>;
 }
 
-export function SignUpModal({ isOpen, onClose }: SignUpModalProps) {
+export function SignUpModal({ isOpen, onClose, onAuthSuccess }: SignUpModalProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -66,6 +67,7 @@ export function SignUpModal({ isOpen, onClose }: SignUpModalProps) {
       });
 
       if (error) throw error;
+      await onAuthSuccess?.();
       onClose();
     } catch (err: any) {
       setError(err.message || 'Signup failed');
@@ -79,7 +81,8 @@ export function SignUpModal({ isOpen, onClose }: SignUpModalProps) {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.href, // Redirect back to current page
+          // Use origin to avoid carrying OAuth query params and to work in both dev/prod
+          redirectTo: window.location.origin,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',

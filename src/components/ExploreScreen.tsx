@@ -1,18 +1,20 @@
 import { Header } from './Header';
 import { BottomNav } from './BottomNav';
 import { PriceChecker } from './PriceChecker';
+import { User } from '@supabase/supabase-js';
 
 interface ExploreScreenProps {
   onNavigate: (screen: 'home' | 'explore' | 'report' | 'saved' | 'profile' | 'cultural') => void;
   isLoggedIn: boolean;
   userName: string;
+  user: User | null;
   onShowLogin: () => void;
   onLogout: () => void;
   isDarkMode?: boolean;
   onToggleDarkMode?: (value: boolean) => void;
 }
 
-export function ExploreScreen({ onNavigate, isLoggedIn, userName, onShowLogin, onLogout, isDarkMode = false }: ExploreScreenProps) {
+export function ExploreScreen({ onNavigate, isLoggedIn, userName, user, onShowLogin, onLogout, isDarkMode = false }: ExploreScreenProps) {
   return (
     <div className="min-h-screen pb-20">
       <Header isLoggedIn={isLoggedIn} userName={userName} onShowLogin={onShowLogin} onNavigate={onNavigate} onLogout={onLogout} isDarkMode={isDarkMode} />

@@ -63,12 +63,15 @@ export function Header({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => onNavigate?.('profile')}>
+                <DropdownMenuItem
+                  onSelect={() => onNavigate?.('profile')}
+                  className="cursor-pointer"
+                >
                   Profile
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={onLogout}
-                  className="text-red-600 focus:text-red-600"
+                  onSelect={() => onLogout?.()}
+                  className="cursor-pointer text-red-600 focus:text-red-600"
                 >
                   Logout
                 </DropdownMenuItem>

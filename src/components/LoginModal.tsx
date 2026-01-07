@@ -8,9 +8,10 @@ interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onShowSignUp: () => void;
+  onAuthSuccess?: () => void | Promise<void>;
 }
 
-export function LoginModal({ isOpen, onClose, onShowSignUp }: LoginModalProps) {
+export function LoginModal({ isOpen, onClose, onShowSignUp, onAuthSuccess }: LoginModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -50,6 +51,7 @@ export function LoginModal({ isOpen, onClose, onShowSignUp }: LoginModalProps) {
         password,
       });
       if (error) throw error;
+      await onAuthSuccess?.();
       onClose();
     } catch (err: any) {
       setError(err.message || 'Login failed');
@@ -63,7 +65,8 @@ export function LoginModal({ isOpen, onClose, onShowSignUp }: LoginModalProps) {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.href, // Redirect back to current page
+          // Use origin to avoid carrying OAuth query params and to work in both dev/prod
+          redirectTo: window.location.origin,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',

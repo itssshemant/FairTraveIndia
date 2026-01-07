@@ -38,6 +38,20 @@ export default function App() {
   const [showSignUpModal, setShowSignUpModal] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
+  const syncAuthFromSession = async () => {
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error("[auth] getSession failed:", error);
+      }
+      const session = data?.session ?? null;
+      setUser(session?.user ?? null);
+      setIsLoggedIn(!!session?.user);
+    } catch (e) {
+      console.error("[auth] syncAuthFromSession error:", e);
+    }
+  };
+
   /* -------- SUPABASE AUTH STATE -------- */
   useEffect(() => {
     let mounted = true;
@@ -66,13 +80,8 @@ export default function App() {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
 
-        const { data, error } = await supabase.auth.getSession();
-        if (error) console.error("[auth] getSession failed:", error);
-
         if (mounted) {
-          const session = data?.session ?? null;
-          setUser(session?.user ?? null);
-          setIsLoggedIn(!!session?.user);
+          await syncAuthFromSession();
         }
       } catch (e) {
         console.error("[auth] initAuth error:", e);
@@ -200,24 +209,25 @@ export default function App() {
 
   const handleShowLogin = () => setShowLoginModal(true);
   const handleLogout = async () => {
-    // attempt to sign out via Supabase and update local UI state only after success
+    // Always log out locally (UI/session), and attempt remote sign-out best-effort.
     try {
-      const { error } = await supabase.auth.signOut();
+      // Prefer remote sign-out; if network/DNS fails, fall back to local-only sign-out.
+      const { error } = await supabase.auth.signOut({ scope: 'global' });
       if (error) {
-        console.error('Logout error:', error);
-        // keep user state as-is so UI can reflect actual auth state
-        alert('Logout failed: ' + (error?.message || 'Unknown error'));
-        return;
+        console.warn('Remote logout failed, falling back to local logout:', error);
+        await supabase.auth.signOut({ scope: 'local' });
       }
-
-      // Clear local state and navigate to home after successful sign out
+    } catch (err) {
+      console.warn('Remote logout threw, falling back to local logout:', err);
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch (localErr) {
+        console.warn('Local logout also failed:', localErr);
+      }
+    } finally {
       setUser(null);
       setIsLoggedIn(false);
       setCurrentScreen('home');
-      console.log('Logged out successfully');
-    } catch (err) {
-      console.error('Unexpected logout error:', err);
-      alert('Unexpected logout error');
     }
   };
 
@@ -271,6 +281,7 @@ export default function App() {
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
+        onAuthSuccess={syncAuthFromSession}
         onShowSignUp={() => {
           setShowLoginModal(false);
           setShowSignUpModal(true);
@@ -280,6 +291,7 @@ export default function App() {
       <SignUpModal
         isOpen={showSignUpModal}
         onClose={() => setShowSignUpModal(false)}
+        onAuthSuccess={syncAuthFromSession}
       />
     </div>
   );
